@@ -5,6 +5,10 @@ __pycache__/
 .idea/
 
 outputs/*.png
+outputs/iter_renders/
+outputs/iter_textures/
+outputs/*.mp4
+outputs/*.gif
 
 # Large local sample assets
 data/sample/*.obj
