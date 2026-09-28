@@ -1,0 +1,2 @@
+# Use the existing exmesh environment with PyTorch 2.8.0+cu128 and nvdiffrast 0.4.0.
+# This smoke test requires no additional pip packages.

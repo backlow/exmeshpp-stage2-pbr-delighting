@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+
+.vscode/
+.idea/
+
+outputs/*.png
+
+# Large local sample assets
+data/sample/*.obj
+data/sample/*.png
+data/sample/*.mtl
+
+# Keep directories
+!outputs/.gitkeep
