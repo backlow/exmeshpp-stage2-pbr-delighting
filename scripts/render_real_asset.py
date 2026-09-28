@@ -12,6 +12,19 @@ from stage2.renderer import render_texture
 from smoke_uv import write_png
 
 
+def test_clip_vertices(vertices: torch.Tensor) -> torch.Tensor:
+    """Fixed +Z orthographic view; center and fit the longest side to 1.6."""
+    bounds_min = vertices.amin(dim=0)
+    bounds_max = vertices.amax(dim=0)
+    extent = (bounds_max - bounds_min).max()
+    if extent.item() <= 0:
+        raise ValueError("Mesh must have nonzero spatial extent")
+    clip_vertices = (vertices - (bounds_min + bounds_max) / 2) * (1.6 / extent)
+    # Larger world Z is nearer; the renderer supplies homogeneous w=1.
+    clip_vertices[:, 2] = -clip_vertices[:, 2]
+    return clip_vertices
+
+
 @torch.no_grad()
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -35,14 +48,7 @@ def main() -> None:
     bounds_max = mesh.vertices.amax(dim=0)
     center = (bounds_min + bounds_max) / 2
     extent = (bounds_max - bounds_min).max()
-    if extent.item() <= 0:
-        raise ValueError("Mesh must have nonzero spatial extent")
-
-    # Center the AABB and uniformly fit its longest side to 1.6 clip units.
-    # Orthographic view from +Z, +Y up, no rotation. Negate Z so larger
-    # world Z is nearer; the shared renderer supplies homogeneous w=1.
-    clip_vertices = (mesh.vertices - center) * (1.6 / extent)
-    clip_vertices[:, 2] = -clip_vertices[:, 2]
+    clip_vertices = test_clip_vertices(mesh.vertices)
     result = render_texture(
         clip_vertices, mesh.faces, mesh.uv_coords, mesh.uv_indices,
         mesh.rgb_texture, args.size, args.size, flip_v=args.flip_v,

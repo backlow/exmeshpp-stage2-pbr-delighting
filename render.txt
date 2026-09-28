@@ -1,0 +1,22 @@
+$dir = "outputs/iter_renders"
+$list = Join-Path $dir "frames.txt"
+
+Remove-Item $list -ErrorAction SilentlyContinue
+
+$files = Get-ChildItem $dir -Filter "render_*.png" | Sort-Object Name
+
+foreach ($file in $files) {
+    $path = $file.FullName -replace '\\','/'
+    Add-Content $list "file '$path'"
+    Add-Content $list "duration 0.125"
+}
+
+# concat demuxer는 마지막 프레임 duration 적용을 위해 마지막 파일을 한 번 더 적는 게 안전
+$last = $files[-1].FullName -replace '\\','/'
+Add-Content $list "file '$last'"
+
+ffmpeg -y -f concat -safe 0 -i $list `
+-vf "scale=1024:-2:flags=lanczos,format=yuv420p" `
+-fps_mode vfr `
+-movflags +faststart `
+"$dir/render_progress.mp4"

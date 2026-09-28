@@ -1,4 +1,4 @@
-"""Load an OBJ mesh with separate geometry and face-corner UV indices."""
+"""Load an OBJ mesh with separate geometry and face-corner UV indices."""   
 
 from dataclasses import dataclass
 from pathlib import Path
