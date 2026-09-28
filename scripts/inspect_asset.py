@@ -9,6 +9,7 @@ from stage2.io import load_obj_with_texture
 
 
 def main() -> None:
+    """Load an asset and print its tensor shapes and index ranges."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("obj_path", type=Path)
     parser.add_argument("texture_path", type=Path)

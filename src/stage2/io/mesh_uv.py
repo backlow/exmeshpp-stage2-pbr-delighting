@@ -39,6 +39,8 @@ def load_obj_with_texture(
 ) -> MeshUVCarrier:
     """Load positive-indexed triangular OBJ faces and an explicit RGB texture.
 
+    Return V [Nv, 3], F/Phi [Nf, 3], U [Nu, 2], texture [Ht, Wt, 3]
+    in a MeshUVCarrier on device.
     Accept v/vt and v/vt/vn corners; ignore normals and material directives.
     Relative (negative) indices and empty meshes are unsupported. Read the
     first three vertex and first two UV components, without flipping UVs or

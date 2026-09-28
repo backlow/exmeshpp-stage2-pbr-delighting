@@ -8,10 +8,9 @@ import torch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
-sys.path.insert(0, str(ROOT / "scripts"))
-    
-from smoke_uv import smoke_mesh
-from stage2.renderer import render_checkerboard
+
+from stage2.demos.uv import smoke_mesh
+from stage2.demos.uv import render_checkerboard
 
 
 @unittest.skipUnless(torch.cuda.is_available(), "CUDA is required by nvdiffrast")

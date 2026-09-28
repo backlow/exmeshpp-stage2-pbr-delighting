@@ -11,11 +11,13 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from stage2.io import load_obj_with_texture
 from stage2.renderer import render_texture
-from render_real_asset import test_clip_vertices
-from smoke_uv import write_png
-from torchvision.utils import save_image
+from stage2.camera import fixed_clip_vertices
+from stage2.image import save_preview, write_png
+from stage2.optimization import create_learnable_texture, texture_gradient_norm
+
 
 def main() -> None:
+    """Run the fixed-view texture experiment and save images and loss history."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--obj", type=Path, default=Path("data/sample/xatlas_version.obj"))
     parser.add_argument("--texture", type=Path, default=Path("data/sample/xatlas_version_texture.png"))
@@ -23,20 +25,26 @@ def main() -> None:
     parser.add_argument("--size", type=int, default=512)
     parser.add_argument("--iterations", type=int, default=100)
     parser.add_argument("--lr", type=float, default=0.03)
-    parser.add_argument(
-        "--flip-v", action=argparse.BooleanOptionalAction, default=True,
-        help="sample at 1-v for bottom-origin OBJ UVs and top-down PNG rows",
-    )
+    parser.add_argument("--flip-v", action=argparse.BooleanOptionalAction, default=True,help="sample at 1-v for bottom-origin OBJ UVs and top-down PNG rows",)
 
     args = parser.parse_args()
+
     if args.size <= 0 or args.iterations <= 0 or not math.isfinite(args.lr) or args.lr <= 0:
         parser.error("size, iterations, and learning rate must be positive and finite")
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA is required for this nvdiffrast optimization test")
 
+    render_preview_dir = args.output_dir / "iter_renders"
+    texture_preview_dir = args.output_dir / "iter_textures"
+    render_preview_dir.mkdir(parents=True, exist_ok=True)
+    texture_preview_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1. Load the asset and build the fixed view.
     mesh = load_obj_with_texture(args.obj, args.texture, device="cuda")
-    V = test_clip_vertices(mesh.vertices)
-    F, U, Phi = mesh.faces, mesh.uv_coords, mesh.uv_indices
+    V = fixed_clip_vertices(mesh.vertices)  # [Nv, 3], clip-space xyz
+    F = mesh.faces       # [Nf, 3], geometry indices
+    U = mesh.uv_coords   # [Nu, 2], UV coordinates
+    Phi = mesh.uv_indices  # [Nf, 3], independent UV corner indices
     for name, tensor in (("V", V), ("F", F), ("U", U), ("Phi", Phi)):
         print(f"{name}.requires_grad: {tensor.requires_grad}")
         assert not tensor.requires_grad
@@ -44,22 +52,24 @@ def main() -> None:
     def render(texture: torch.Tensor):
         return render_texture(V, F, U, Phi, texture, args.size, args.size, flip_v=args.flip_v)
 
-    # Same full-resolution texture shape, deliberately different gray initialization.
-    texture = torch.nn.Parameter(torch.full_like(mesh.rgb_texture, 0.5))
-    optimizer = torch.optim.Adam([texture], lr=args.lr) # texture 하나만 adam에게 넘김
-    print(f"Learnable texture.requires_grad: {texture.requires_grad}")
-    print(f"Texture V flipped: {args.flip_v}")
 
-#get GT img
+    # 2. Build a fixed GT image [H, W, 3] from the original texture.
     with torch.no_grad():
         gt_render = render(mesh.rgb_texture)
         if not gt_render.mask.any().item():
             raise RuntimeError("The fixed view has no visible mesh pixels")
-        
         gt = gt_render.rgb
+
+
+    # 3. Initialize only the texture [Ht, Wt, 3] as a learnable parameter.
+    texture = create_learnable_texture(mesh.rgb_texture)
+    optimizer = torch.optim.Adam([texture], lr=args.lr)
+    print(f"Learnable texture.requires_grad: {texture.requires_grad}")
+    print(f"Texture V flipped: {args.flip_v}")
+
+    with torch.no_grad():
         initial = render(texture).rgb
 
-        #getloss
         initial_loss = (initial - gt).abs().mean().item()
 
         # Convert bottom-up framebuffer rows to top-down PNG rows on export only.
@@ -70,51 +80,43 @@ def main() -> None:
     losses = []
     first_grad_norm = None
 
-#optimization
+
+    # 4. Render -> full-image L1 -> backward -> Adam update -> save/log.
     for step in range(args.iterations):
         optimizer.zero_grad(set_to_none=True)
 
-        #pred
         prediction = render(texture).rgb
 
-        #loss function gt, pred
         loss = (prediction - gt).abs().mean()
 
-        #gradient 계산
         loss.backward()
+        grad_norm = texture_gradient_norm(texture, loss)
 
-        if texture.grad is None:
-            raise RuntimeError("Texture gradient is missing")
-        
-        grad_norm = texture.grad.norm().item()
-
-        if not math.isfinite(grad_norm) or not torch.isfinite(loss).item():
-            raise RuntimeError("Non-finite loss or texture gradient")
-
-        #grad normalize가 아무것도 초기화 안되어 있으면 grad_norm으로
         if first_grad_norm is None:
             first_grad_norm = grad_norm
             if grad_norm == 0:
                 raise RuntimeError("Initial texture gradient is zero")
-            
+
         losses.append((step, loss.item()))  # Loss before this step's update.
 
-        #optimizing
         optimizer.step()
 
         with torch.no_grad():
             texture.clamp_(0, 1)
 
-        if(step+1)%2==0:
-            save_image(prediction.detach().permute(2, 0, 1),f"outputs/iter_renders/render_{step:04d}.png")
-            save_image(texture.detach().permute(2, 0, 1),f"outputs/iter_textures/texture_{step:04d}.png")
+        completed_updates = step + 1
+        if completed_updates % 2 == 0:
+            # Both previews show the same clamped, post-update texture state.
+            with torch.no_grad():
+                preview_prediction = render(texture).rgb
+            save_preview(render_preview_dir / f"render_{completed_updates:04d}.png", preview_prediction)
+            save_preview(texture_preview_dir / f"texture_{completed_updates:04d}.png", texture)
 
-        #25iteration
-        if (step + 1) % 25 == 0:
-            print(f"Step {step + 1}/{args.iterations}: pre-update loss={loss.item():.9f}", flush=True)
-            
+        if completed_updates % 25 == 0:
+            print(f"Step {completed_updates}/{args.iterations}: pre-update loss={loss.item():.9f}", flush=True)
 
-    # Evaluate after the final update, rather than reporting the last pre-update loss.
+
+    # 5. Evaluate and save after the final update.
     with torch.no_grad():
         optimized = render(texture).rgb
         final_loss = (optimized - gt).abs().mean().item()

@@ -1,3 +1,6 @@
-from .uv import UVRender, render_checkerboard, render_texture
+"""Rasterization, UV interpolation, and differentiable texture rendering."""
 
-__all__ = ["UVRender", "render_checkerboard", "render_texture"]
+from .rasterization import rasterize_uv
+from .uv import UVRender, render_texture
+
+__all__ = ["UVRender", "rasterize_uv", "render_texture"]

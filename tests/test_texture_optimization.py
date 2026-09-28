@@ -8,9 +8,9 @@ import torch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
-sys.path.insert(0, str(ROOT / "scripts"))
-from smoke_uv import smoke_mesh
+from stage2.demos.uv import smoke_mesh
 from stage2.renderer import render_texture
+from stage2.optimization import create_learnable_texture, texture_gradient_norm
 
 
 @unittest.skipUnless(torch.cuda.is_available(), "CUDA is required by nvdiffrast")
@@ -23,11 +23,10 @@ class TextureOptimizationTest(unittest.TestCase):
         def render(texture):
             return render_texture(V, F, U, Phi, texture, 32, 32, flip_v=True).rgb
 
-
         with torch.no_grad():
             target = render(target_texture)
 
-        texture = torch.nn.Parameter(torch.full_like(target_texture, 0.5))
+        texture = create_learnable_texture(target_texture)
         optimizer = torch.optim.Adam([texture], lr=0.03)
         initial_loss = (render(texture) - target).abs().mean().item()
 
@@ -35,6 +34,7 @@ class TextureOptimizationTest(unittest.TestCase):
             optimizer.zero_grad(set_to_none=True)
             loss = (render(texture) - target).abs().mean()
             loss.backward()
+            self.assertGreater(texture_gradient_norm(texture, loss), 0)
             self.assertIsNotNone(texture.grad)
             self.assertTrue(torch.isfinite(texture.grad).all().item())
             self.assertGreater(texture.grad.norm().item(), 0)
@@ -45,7 +45,7 @@ class TextureOptimizationTest(unittest.TestCase):
 
         self.assertLess(final_loss, initial_loss)
         self.assertTrue(texture.requires_grad)
-        
+
         for value, original in zip((V, F, U, Phi), fixed):
             self.assertFalse(value.requires_grad)
             self.assertIsNone(value.grad)

@@ -4,16 +4,10 @@ __pycache__/
 .vscode/
 .idea/
 
-outputs/*.png
-outputs/iter_renders/
-outputs/iter_textures/
-outputs/*.mp4
-outputs/*.gif
+outputs/**
+!outputs/.gitkeep
 
 # Large local sample assets
 data/sample/*.obj
 data/sample/*.png
 data/sample/*.mtl
-
-# Keep directories
-!outputs/.gitkeep
