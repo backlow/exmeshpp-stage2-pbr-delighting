@@ -51,6 +51,7 @@ def load_obj_with_texture(
     faces: list[list[int]] = []
     uv_indices: list[list[int]] = []
 
+#obj disassembly
     with Path(obj_path).open("r", encoding="utf-8") as obj_file:
         for line_number, line in enumerate(obj_file, start=1):
             parts = line.split("#", 1)[0].split()
@@ -81,19 +82,22 @@ def load_obj_with_texture(
                 faces.append(face)
                 uv_indices.append(face_uv)
 
+#해당 obj file이 유효하지 않다면 exception
     if not vertices or not uv_coords or not faces:
         raise ValueError("OBJ must contain vertices, UV coordinates, and triangular faces")
     if max(max(face) for face in faces) >= len(vertices):
         raise ValueError("OBJ face references a geometry index outside the vertex list")
     if max(max(face_uv) for face_uv in uv_indices) >= len(uv_coords):
         raise ValueError("OBJ face references a UV index outside the UV list")
-
+    
+#texture read
     with Image.open(texture_path) as image:
         rgb = image.convert("RGB")
         width, height = rgb.size
         pixels = bytearray(rgb.tobytes())
     rgb_texture = torch.frombuffer(pixels, dtype=torch.uint8).reshape(height, width, 3)
 
+#obj mesh와 rgb texture 데이터 반환
     return MeshUVCarrier(
         vertices=torch.tensor(vertices, dtype=torch.float32, device=device),
         faces=torch.tensor(faces, dtype=torch.int32, device=device),

@@ -31,26 +31,34 @@ def main() -> None:
 
     if args.size <= 0 or args.iterations <= 0 or not math.isfinite(args.lr) or args.lr <= 0:
         parser.error("size, iterations, and learning rate must be positive and finite")
+
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA is required for this nvdiffrast optimization test")
+
 
     render_preview_dir = args.output_dir / "iter_renders"
     texture_preview_dir = args.output_dir / "iter_textures"
     render_preview_dir.mkdir(parents=True, exist_ok=True)
     texture_preview_dir.mkdir(parents=True, exist_ok=True)
 
+
     # 1. Load the asset and build the fixed view.
     mesh = load_obj_with_texture(args.obj, args.texture, device="cuda")
+    #return  MeshUVCarrier:
     V = fixed_clip_vertices(mesh.vertices)  # [Nv, 3], clip-space xyz
     F = mesh.faces       # [Nf, 3], geometry indices
     U = mesh.uv_coords   # [Nu, 2], UV coordinates
     Phi = mesh.uv_indices  # [Nf, 3], independent UV corner indices
+
     for name, tensor in (("V", V), ("F", F), ("U", U), ("Phi", Phi)):
         print(f"{name}.requires_grad: {tensor.requires_grad}")
+        #assert -> condition이 true 여야 지속됨 
         assert not tensor.requires_grad
 
+    
     def render(texture: torch.Tensor):
         return render_texture(V, F, U, Phi, texture, args.size, args.size, flip_v=args.flip_v)
+
 
 
     # 2. Build a fixed GT image [H, W, 3] from the original texture.
@@ -61,34 +69,42 @@ def main() -> None:
         gt = gt_render.rgb
 
 
+
     # 3. Initialize only the texture [Ht, Wt, 3] as a learnable parameter.
     texture = create_learnable_texture(mesh.rgb_texture)
+    #texture에 대해서만 update
+
+    #미분 변수 지정 - > texture
     optimizer = torch.optim.Adam([texture], lr=args.lr)
     print(f"Learnable texture.requires_grad: {texture.requires_grad}")
     print(f"Texture V flipped: {args.flip_v}")
 
+    #initial loss
     with torch.no_grad():
         initial = render(texture).rgb
 
         initial_loss = (initial - gt).abs().mean().item()
 
         # Convert bottom-up framebuffer rows to top-down PNG rows on export only.
-        write_png(args.output_dir / "single_view_gt.png", gt.flip(0))
-        write_png(args.output_dir / "single_view_initial.png", initial.flip(0))
+        write_png(args.output_dir / "single_view_gt.png", gt)
+        write_png(args.output_dir / "single_view_initial.png", initial)
     print(f"Initial L1 loss (full image): {initial_loss:.9f}")
 
     losses = []
     first_grad_norm = None
 
 
+
     # 4. Render -> full-image L1 -> backward -> Adam update -> save/log.
     for step in range(args.iterations):
         optimizer.zero_grad(set_to_none=True)
+        # texure.grad 를 0으로 지정함, optimizer 가 texture를 미분변수로 둠
 
         prediction = render(texture).rgb
 
         loss = (prediction - gt).abs().mean()
 
+        #
         loss.backward()
         grad_norm = texture_gradient_norm(texture, loss)
 
@@ -99,6 +115,7 @@ def main() -> None:
 
         losses.append((step, loss.item()))  # Loss before this step's update.
 
+        #실제 texture tensor 업데이트, gd, torch optim adam
         optimizer.step()
 
         with torch.no_grad():
@@ -108,6 +125,7 @@ def main() -> None:
         if completed_updates % 2 == 0:
             # Both previews show the same clamped, post-update texture state.
             with torch.no_grad():
+                #render view
                 preview_prediction = render(texture).rgb
             save_preview(render_preview_dir / f"render_{completed_updates:04d}.png", preview_prediction)
             save_preview(texture_preview_dir / f"texture_{completed_updates:04d}.png", texture)
@@ -116,11 +134,13 @@ def main() -> None:
             print(f"Step {completed_updates}/{args.iterations}: pre-update loss={loss.item():.9f}", flush=True)
 
 
+
     # 5. Evaluate and save after the final update.
+    #optimize 되고 난 결과
     with torch.no_grad():
         optimized = render(texture).rgb
         final_loss = (optimized - gt).abs().mean().item()
-        write_png(args.output_dir / "single_view_optimized.png", optimized.flip(0))
+        write_png(args.output_dir / "single_view_optimized.png", optimized)
 
     losses.append((args.iterations, final_loss))
 
@@ -134,6 +154,7 @@ def main() -> None:
     print(f"Texture gradient L2 norm: first={first_grad_norm:.9g}, last backward={grad_norm:.9g}")
     print(f"Optimization iterations: {args.iterations}; optimizer parameters: texture only")
     print(f"Saved GT, initial, optimized PNGs and loss CSV in {args.output_dir}")
+    
     if not final_loss < initial_loss:
         raise RuntimeError("Texture optimization did not reduce the loss")
 

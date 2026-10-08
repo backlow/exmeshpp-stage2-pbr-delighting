@@ -1,4 +1,5 @@
 """Smoke-only mesh and checkerboard; production rendering does not import this."""
+"""experiment files"""
 
 import torch
 

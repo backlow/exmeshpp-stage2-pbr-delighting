@@ -20,6 +20,8 @@ def rasterize_uv(
     Return face_index [H, W], barycentric [H, W, 3], uv [H, W, 2],
     and mask [H, W], with bottom-up framebuffer rows.
     """
+
+    #input 데이터 유효성 검사
     if V.ndim != 2 or V.shape[1] != 3:
         raise ValueError("V must have shape [vertex, 3]")
     if F.ndim != 2 or F.shape[1] != 3:
@@ -33,21 +35,29 @@ def rasterize_uv(
     if height <= 0 or width <= 0:
         raise ValueError("height and width must be positive")
 
+    #homogeneous coordinate 좌표로 만들기
     positions = torch.cat((V.float(), torch.ones_like(V[:, :1])), dim=1)[None]
     context = dr.RasterizeCudaContext(device=V.device)
+    
+    #rast 변수에 b1,b2, z/w, face_index 가 있음 
     rast, _ = dr.rasterize(context, positions, F.int().contiguous(), (height, width))
-
     face_index = rast[0, :, :, 3].long() - 1
+
     mask = face_index >= 0
+
+    #barycentric 1-b1-b2 = b3
     barycentric = torch.cat(
         (rast[0, :, :, :2], 1.0 - rast[0, :, :, :2].sum(dim=-1, keepdim=True)),
         dim=-1,
     )
+
+    #pixel 있는 곳은 barycentric 저장하고 아닌 곳은 저장 x
     barycentric = torch.where(mask[..., None], barycentric, 0.0)
 
     # nvdiffrast uses Phi to select UV corners independently from F's vertices.
     uv, _ = dr.interpolate(U.float()[None].contiguous(), rast, Phi.int().contiguous())
     uv = uv[0]
+
     return face_index, barycentric, uv, mask
 
 

@@ -38,6 +38,7 @@ def main() -> None:
     center = (bounds_min + bounds_max) / 2
     extent = (bounds_max - bounds_min).max()
     clip_vertices = fixed_clip_vertices(mesh.vertices)
+    
     result = render_texture(
         clip_vertices, mesh.faces, mesh.uv_coords, mesh.uv_indices,
         mesh.rgb_texture, args.size, args.size, flip_v=args.flip_v,

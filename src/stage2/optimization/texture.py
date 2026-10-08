@@ -4,15 +4,16 @@ import math
 
 import torch
 
-
+#neutral texture (0.5,0.5,0.5)
 def create_learnable_texture(reference: torch.Tensor) -> torch.nn.Parameter:
     """Create a gray (0.5) parameter matching reference RGB [Ht, Wt, 3].
 
     Preserve the reference dtype/device without connecting its gradient graph.
     """
+    #tensor가 gradient를 추적해야 하는 변수임을 알려줌 
     return torch.nn.Parameter(torch.full_like(reference, 0.5))
 
-
+#solve tensor gradient with torch
 def texture_gradient_norm(texture: torch.Tensor, loss: torch.Tensor) -> float:
     """Check RGB texture [Ht, Wt, 3] gradients and scalar loss after backward.
 
